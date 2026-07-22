@@ -115,6 +115,7 @@
         <label>App ID</label>
         <input type="text" id="appId" placeholder="1089 (or your own)" value="1089">
       </div>
+      <div style="color:var(--dim); font-size:10px; margin:-4px 0 8px 0;">This connects to Deriv's classic WebSocket API (ws.derivws.com), which expects a numeric app_id like <code>1089</code>. IDs from the newer OAuth developer portal are a different format and may be rejected server-side — if connection closes immediately, try <code>1089</code> to confirm.</div>
       <div class="row">
         <label>API token</label>
         <input type="text" id="apiToken" placeholder="demo/real token (leave blank to watch only)">
@@ -561,9 +562,22 @@
       }
     };
 
-    ws.onerror = () => log('WebSocket error', 'loss');
-    ws.onclose = () => {
-      log('WebSocket closed', 'info');
+    ws.onerror = (evt) => {
+      log('WebSocket error (browsers hide details on this event — check the close code/reason below for the real cause)', 'loss');
+    };
+    ws.onclose = (evt) => {
+      // evt.code / evt.reason come straight from the server and are the most
+      // reliable way to see WHY Deriv closed the connection (e.g. invalid app_id,
+      // rate limiting, etc). Surface them instead of a generic "closed" message.
+      const codeMap = {
+        1000: 'Normal closure',
+        1006: 'Abnormal closure (no close frame received — often a network issue or the server refused the handshake)',
+        1008: 'Policy violation (often an invalid/unauthorized app_id)',
+        1011: 'Server error'
+      };
+      const codeDesc = codeMap[evt.code] ? ` — ${codeMap[evt.code]}` : '';
+      const reasonTxt = evt.reason ? ` | reason: "${evt.reason}"` : ' | no reason string sent by server';
+      log(`WebSocket closed — code ${evt.code}${codeDesc}${reasonTxt}`, evt.code === 1000 ? 'info' : 'alert');
       setConnUI('off');
       $('btnConnect').disabled = false;
       $('btnDisconnect').disabled = true;
