@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digit Scanner — Over/Under Tick Watcher</title>
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#12161f; --panel2:#181d29; --line:#232a38;
+    --txt:#dfe6f0; --dim:#7c8aa0; --accent:#3ddc97; --accent2:#3d9bdc;
+    --hot:#ff5470; --cold:#3ddc97; --neutral:#5a6478; --warn:#ffb14e;
+    --mono: 'SF Mono', 'Consolas', 'Menlo', monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--txt);
+    font-family: var(--mono); font-size:13px;
+    padding:16px; -webkit-font-smoothing:antialiased;
+  }
+  h1{font-size:15px; margin:0 0 2px 0; letter-spacing:0.5px; color:var(--txt); font-weight:700;}
+  .sub{color:var(--dim); font-size:11px; margin-bottom:16px;}
+  .grid{display:grid; grid-template-columns: 1fr 1fr; gap:14px;}
+  @media (max-width: 900px){ .grid{grid-template-columns:1fr;} }
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px;
+  }
+  .panel h2{
+    font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--dim);
+    margin:0 0 10px 0; font-weight:600; display:flex; justify-content:space-between; align-items:center;
+  }
+  .row{display:flex; gap:8px; margin-bottom:8px; align-items:center; flex-wrap:wrap;}
+  label{color:var(--dim); font-size:11px; min-width:70px;}
+  input[type=text], input[type=number], select{
+    background:var(--panel2); border:1px solid var(--line); color:var(--txt);
+    padding:6px 8px; border-radius:6px; font-family:var(--mono); font-size:12px;
+    flex:1; min-width:80px;
+  }
+  input:focus, select:focus{outline:1px solid var(--accent2);}
+  button{
+    background:var(--panel2); border:1px solid var(--line); color:var(--txt);
+    padding:7px 12px; border-radius:6px; font-family:var(--mono); font-size:12px;
+    cursor:pointer; transition:0.15s;
+  }
+  button:hover{border-color:var(--accent2);}
+  button.primary{background:var(--accent2); border-color:var(--accent2); color:#04101c; font-weight:700;}
+  button.primary:hover{filter:brightness(1.1);}
+  button.danger{background:var(--hot); border-color:var(--hot); color:#1a0508; font-weight:700;}
+  button:disabled{opacity:0.4; cursor:not-allowed;}
+  .status-dot{width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px;}
+  .dot-off{background:var(--neutral);}
+  .dot-on{background:var(--accent); box-shadow:0 0 6px var(--accent);}
+  .dot-warn{background:var(--warn);}
+  .digits{display:grid; grid-template-columns:repeat(5,1fr); gap:6px; margin-top:6px;}
+  .digit-cell{
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+    padding:10px 4px; text-align:center; position:relative; transition:0.2s;
+  }
+  .digit-cell.selected{border-color:var(--accent2); box-shadow:0 0 0 1px var(--accent2);}
+  .digit-num{font-size:20px; font-weight:700;}
+  .digit-pct{font-size:11px; margin-top:2px; color:var(--dim);}
+  .digit-pct.hot{color:var(--accent);}
+  .digit-pct.cold{color:var(--hot);}
+  .bar-bg{height:3px; background:var(--line); border-radius:2px; margin-top:6px; overflow:hidden;}
+  .bar-fill{height:100%; background:var(--accent2);}
+  .stream{
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+    padding:8px; height:140px; overflow-y:auto; font-size:11px; color:var(--dim);
+    display:flex; flex-wrap:wrap; align-content:flex-start; gap:4px;
+  }
+  .tick-chip{
+    background:var(--panel); border:1px solid var(--line); border-radius:4px;
+    padding:2px 6px; font-weight:700; color:var(--txt);
+  }
+  .log{
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+    padding:8px; height:180px; overflow-y:auto; font-size:11px;
+  }
+  .log-line{padding:3px 0; border-bottom:1px solid var(--line); color:var(--dim);}
+  .log-line.win{color:var(--accent);}
+  .log-line.loss{color:var(--hot);}
+  .log-line.info{color:var(--accent2);}
+  .log-line.alert{color:var(--warn);}
+  .kpi-row{display:flex; gap:10px; margin-top:10px;}
+  .kpi{flex:1; background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:8px; text-align:center;}
+  .kpi-val{font-size:16px; font-weight:700;}
+  .kpi-label{font-size:10px; color:var(--dim); text-transform:uppercase; margin-top:2px;}
+  .toggle{display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;}
+  .toggle input{width:14px; height:14px;}
+  .warn-box{
+    background:rgba(255,177,78,0.08); border:1px solid var(--warn); border-radius:8px;
+    padding:8px 10px; font-size:11px; color:var(--warn); margin-bottom:12px; line-height:1.5;
+  }
+  .footer-note{color:var(--dim); font-size:10px; margin-top:16px; line-height:1.6;}
+  ::-webkit-scrollbar{width:6px;}
+  ::-webkit-scrollbar-thumb{background:var(--line); border-radius:3px;}
+</style>
+</head>
+<body>
+
+<h1>&#9679; DIGIT SCANNER</h1>
+<div class="sub">Live last-digit frequency watcher · alerts + auto-trade via Deriv WebSocket API</div>
+
+<div class="warn-box">
+  &#9888; This places <b>real or demo trades</b> directly on your Deriv account when auto-trade is armed. Digit outcomes on synthetic indices are designed to be statistically independent — frequency deviations are not predictive edges. Start on a <b>demo token</b> and use the safety limits below. You are responsible for everything this fires.
+</div>
+
+<div class="grid">
+
+  <!-- LEFT COLUMN -->
+  <div>
+    <div class="panel">
+      <h2><span><span class="status-dot dot-off" id="connDot"></span>CONNECTION</span><span id="connText" style="color:var(--dim); font-weight:400;">disconnected</span></h2>
+      <div class="row">
+        <label>App ID</label>
+        <input type="text" id="appId" placeholder="1089 (or your own)" value="1089">
+      </div>
+      <div class="row">
+        <label>API token</label>
+        <input type="text" id="apiToken" placeholder="demo/real token (leave blank to watch only)">
+      </div>
+      <div class="row">
+        <label>Symbol</label>
+        <select id="symbol">
+          <option value="R_10">Volatility 10</option>
+          <option value="R_25">Volatility 25</option>
+          <option value="R_50">Volatility 50</option>
+          <option value="R_75" selected>Volatility 75</option>
+          <option value="R_100">Volatility 100</option>
+          <option value="1HZ10V">Volatility 10 (1s)</option>
+          <option value="1HZ25V">Volatility 25 (1s)</option>
+          <option value="1HZ50V">Volatility 50 (1s)</option>
+          <option value="1HZ75V">Volatility 75 (1s)</option>
+          <option value="1HZ100V">Volatility 100 (1s)</option>
+        </select>
+      </div>
+      <div class="row">
+        <button class="primary" id="btnConnect" style="flex:1;">Connect &amp; Watch</button>
+        <button id="btnDisconnect" disabled style="flex:1;">Disconnect</button>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <h2>LAST DIGIT DISTRIBUTION <span id="windowLabel" style="color:var(--dim); font-weight:400;">window: 0 ticks</span></h2>
+      <div class="row">
+        <label>Window</label>
+        <select id="windowSize">
+          <option value="100">100 ticks</option>
+          <option value="250" selected>250 ticks</option>
+          <option value="500">500 ticks</option>
+          <option value="1000">1000 ticks</option>
+        </select>
+        <label style="min-width:auto;">Deviation alert &#177;</label>
+        <input type="number" id="devThreshold" value="3.0" step="0.5" style="max-width:70px;">
+        <span style="color:var(--dim);">pts</span>
+      </div>
+      <div class="digits" id="digitGrid"></div>
+      <div style="margin-top:10px; color:var(--dim); font-size:10px;">Click a digit to select it as the auto-trade barrier. Green = hot (over-represented), red = cold (under-represented) vs the expected 10%.</div>
+      <div class="stream" id="tickStream"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN -->
+  <div>
+    <div class="panel">
+      <h2><span><span class="status-dot dot-off" id="autoDot"></span>ALERTS &amp; AUTO-TRADE</span></h2>
+
+      <div class="row">
+        <label>Direction</label>
+        <select id="tradeDirection">
+          <option value="DIGITOVER">Over (barrier digit)</option>
+          <option value="DIGITUNDER">Under (barrier digit)</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Barrier</label>
+        <input type="number" id="barrierDigit" min="0" max="9" value="5" style="max-width:70px;">
+        <span style="color:var(--dim); font-size:10px;">(auto-fills when you click a digit above)</span>
+      </div>
+      <div class="row">
+        <label>Trigger on</label>
+        <select id="triggerMode">
+          <option value="cold">Selected digit turns COLD (under-repr.)</option>
+          <option value="hot">Selected digit turns HOT (over-repr.)</option>
+          <option value="manual">Manual only — no auto-fire</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Stake</label>
+        <input type="number" id="stake" value="1" min="0.35" step="0.5" style="max-width:80px;">
+        <label style="min-width:auto;">Duration</label>
+        <input type="number" id="duration" value="1" min="1" max="10" style="max-width:60px;">
+        <span style="color:var(--dim);">ticks</span>
+      </div>
+      <div class="row">
+        <label>Cooldown</label>
+        <input type="number" id="cooldown" value="15" min="1" style="max-width:60px;">
+        <span style="color:var(--dim);">sec between auto-trades</span>
+      </div>
+
+      <div style="border-top:1px solid var(--line); margin:10px 0; padding-top:10px;">
+        <div class="row">
+          <label>Max trades/session</label>
+          <input type="number" id="maxTrades" value="10" min="1" style="max-width:70px;">
+          <label style="min-width:auto;">Max loss (USD)</label>
+          <input type="number" id="maxLoss" value="20" min="1" style="max-width:70px;">
+        </div>
+      </div>
+
+      <div class="row">
+        <label class="toggle"><input type="checkbox" id="soundToggle" checked> Sound alert</label>
+        <label class="toggle"><input type="checkbox" id="armToggle"> <b style="color:var(--warn);">Arm auto-trade</b></label>
+      </div>
+      <div class="row">
+        <button class="primary" id="btnManualBuy" style="flex:1;" disabled>Manual Buy Now</button>
+        <button class="danger" id="btnKillSwitch" style="flex:1;" disabled>Kill Switch</button>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi"><div class="kpi-val" id="kpiTrades">0</div><div class="kpi-label">Trades</div></div>
+        <div class="kpi"><div class="kpi-val" id="kpiWins" style="color:var(--accent);">0</div><div class="kpi-label">Wins</div></div>
+        <div class="kpi"><div class="kpi-val" id="kpiLosses" style="color:var(--hot);">0</div><div class="kpi-label">Losses</div></div>
+        <div class="kpi"><div class="kpi-val" id="kpiPnl">0.00</div><div class="kpi-label">P&amp;L (USD)</div></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <h2>ACTIVITY LOG</h2>
+      <div class="log" id="logBox"></div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">
+  Contract types used: DIGITOVER / DIGITUNDER via the Deriv <code>proposal</code> → <code>buy</code> flow. Digit stats reset when you change symbol or window size. Authorization only occurs if you supply an API token — without one, this runs in watch-only mode (no trading possible).
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+
+  let ws = null;
+  let authorized = false;
+  let subscribedTicks = false;
+  let reqId = 1;
+  const pending = {}; // req_id -> handler
+
+  let digitCounts = new Array(10).fill(0);
+  let digitWindow = []; // rolling last-digit values
+  let lastTradeTime = 0;
+  let sessionTrades = 0;
+  let sessionWins = 0;
+  let sessionLosses = 0;
+  let sessionPnl = 0;
+  let killed = false;
+  let selectedDigit = null;
+  let openContracts = {}; // contract_id -> {stake}
+
+  function log(msg, cls){
+    const box = $('logBox');
+    const line = document.createElement('div');
+    line.className = 'log-line' + (cls ? ' ' + cls : '');
+    const t = new Date().toLocaleTimeString();
+    line.textContent = `[${t}] ${msg}`;
+    box.prepend(line);
+    while(box.children.length > 200) box.removeChild(box.lastChild);
+  }
+
+  function beep(freq, dur){
+    try{
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = freq;
+      osc.connect(gain); gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      osc.start();
+      osc.stop(ctx.currentTime + dur);
+    }catch(e){}
+  }
+
+  function sendReq(payload, handler){
+    const id = reqId++;
+    payload.req_id = id;
+    if(handler) pending[id] = handler;
+    ws.send(JSON.stringify(payload));
+    return id;
+  }
+
+  function setConnUI(state){
+    // state: 'off' | 'connecting' | 'watch' | 'auth'
+    const dot = $('connDot'), txt = $('connText');
+    dot.className = 'status-dot ' + (state === 'off' ? 'dot-off' : state === 'connecting' ? 'dot-warn' : 'dot-on');
+    txt.textContent = state === 'off' ? 'disconnected' : state === 'connecting' ? 'connecting…' : state === 'auth' ? 'connected · authorized' : 'connected · watch-only';
+  }
+
+  function buildDigitGrid(){
+    const grid = $('digitGrid');
+    grid.innerHTML = '';
+    for(let d=0; d<10; d++){
+      const cell = document.createElement('div');
+      cell.className = 'digit-cell';
+      cell.dataset.digit = d;
+      cell.innerHTML = `
+        <div class="digit-num">${d}</div>
+        <div class="digit-pct" id="pct-${d}">--%</div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-${d}" style="width:0%"></div></div>
+      `;
+      cell.addEventListener('click', () => {
+        selectedDigit = d;
+        $('barrierDigit').value = d;
+        document.querySelectorAll('.digit-cell').forEach(c => c.classList.remove('selected'));
+        cell.classList.add('selected');
+      });
+      grid.appendChild(cell);
+    }
+  }
+  buildDigitGrid();
+
+  function updateDigitDisplay(){
+    const total = digitWindow.length;
+    $('windowLabel').textContent = `window: ${total} ticks`;
+    const devThresh = parseFloat($('devThreshold').value) || 3.0;
+    const expected = 10.0;
+    for(let d=0; d<10; d++){
+      const count = digitCounts[d];
+      const pct = total > 0 ? (count/total*100) : 0;
+      const pctEl = $('pct-'+d);
+      const barEl = $('bar-'+d);
+      pctEl.textContent = total > 0 ? pct.toFixed(1)+'%' : '--%';
+      barEl.style.width = Math.min(100, pct*4) + '%';
+      pctEl.classList.remove('hot','cold');
+      barEl.style.background = 'var(--accent2)';
+      if(total >= 30){
+        if(pct - expected >= devThresh){
+          pctEl.classList.add('hot'); barEl.style.background = 'var(--accent)';
+        } else if(expected - pct >= devThresh){
+          pctEl.classList.add('cold'); barEl.style.background = 'var(--hot)';
+        }
+      }
+    }
+  }
+
+  function pushTickChip(digit){
+    const stream = $('tickStream');
+    const chip = document.createElement('span');
+    chip.className = 'tick-chip';
+    chip.textContent = digit;
+    stream.appendChild(chip);
+    while(stream.children.length > 120) stream.removeChild(stream.firstChild);
+    stream.scrollTop = stream.scrollHeight;
+  }
+
+  function onNewDigit(digit){
+    digitWindow.push(digit);
+    digitCounts[digit]++;
+    const winSize = parseInt($('windowSize').value);
+    if(digitWindow.length > winSize){
+      const removed = digitWindow.shift();
+      digitCounts[removed]--;
+    }
+    updateDigitDisplay();
+    pushTickChip(digit);
+    checkAlertConditions();
+  }
+
+  function checkAlertConditions(){
+    if(selectedDigit === null) return;
+    const total = digitWindow.length;
+    if(total < 30) return;
+    const mode = $('triggerMode').value;
+    if(mode === 'manual') return;
+    const devThresh = parseFloat($('devThreshold').value) || 3.0;
+    const pct = digitCounts[selectedDigit]/total*100;
+    const isCold = (10.0 - pct) >= devThresh;
+    const isHot = (pct - 10.0) >= devThresh;
+    if((mode === 'cold' && isCold) || (mode === 'hot' && isHot)){
+      fireAlert(selectedDigit, pct, mode);
+    }
+  }
+
+  function fireAlert(digit, pct, mode){
+    const now = Date.now();
+    const cooldownMs = (parseInt($('cooldown').value) || 15) * 1000;
+    if(now - lastTradeTime < cooldownMs) return; // still cooling down, don't spam
+
+    log(`ALERT: digit ${digit} is ${mode.toUpperCase()} at ${pct.toFixed(1)}%`, 'alert');
+    if($('soundToggle').checked) beep(mode === 'cold' ? 880 : 440, 0.15);
+
+    if($('armToggle').checked && !killed){
+      if(sessionTrades >= parseInt($('maxTrades').value)){
+        log('Auto-trade blocked: max trades/session reached', 'info');
+        return;
+      }
+      if(sessionPnl <= -Math.abs(parseFloat($('maxLoss').value))){
+        log('Auto-trade blocked: max loss reached', 'info');
+        return;
+      }
+      lastTradeTime = now;
+      placeTrade(digit);
+    }
+  }
+
+  function placeTrade(barrierOverride){
+    if(!authorized){
+      log('Cannot trade: no API token authorized (watch-only mode)', 'info');
+      return;
+    }
+    const symbol = $('symbol').value;
+    const direction = $('tradeDirection').value;
+    const barrier = barrierOverride !== undefined ? barrierOverride : parseInt($('barrierDigit').value);
+    const stake = parseFloat($('stake').value);
+    const duration = parseInt($('duration').value);
+
+    sendReq({
+      proposal: 1,
+      amount: stake,
+      basis: 'stake',
+      contract_type: direction,
+      currency: 'USD',
+      duration: duration,
+      duration_unit: 't',
+      symbol: symbol,
+      barrier: String(barrier)
+    }, (resp) => {
+      if(resp.error){
+        log('Proposal error: ' + resp.error.message, 'loss');
+        return;
+      }
+      const proposalId = resp.proposal.id;
+      const price = resp.proposal.ask_price;
+      sendReq({ buy: proposalId, price: price }, (buyResp) => {
+        if(buyResp.error){
+          log('Buy error: ' + buyResp.error.message, 'loss');
+          return;
+        }
+        sessionTrades++;
+        $('kpiTrades').textContent = sessionTrades;
+        const cid = buyResp.buy.contract_id;
+        openContracts[cid] = { stake: stake };
+        log(`BUY ${direction} barrier=${barrier} stake=$${stake} dur=${duration}t → contract ${cid}`, 'info');
+        subscribeContract(cid);
+      });
+    });
+  }
+
+  function subscribeContract(contractId){
+    sendReq({ proposal_open_contract: 1, contract_id: contractId, subscribe: 1 }, (resp) => {
+      if(resp.error) return;
+      const poc = resp.proposal_open_contract;
+      if(poc && poc.is_sold){
+        const profit = parseFloat(poc.profit);
+        sessionPnl += profit;
+        if(profit >= 0){ sessionWins++; log(`WIN contract ${contractId}: +$${profit.toFixed(2)}`, 'win'); }
+        else { sessionLosses++; log(`LOSS contract ${contractId}: $${profit.toFixed(2)}`, 'loss'); }
+        $('kpiWins').textContent = sessionWins;
+        $('kpiLosses').textContent = sessionLosses;
+        const pnlEl = $('kpiPnl');
+        pnlEl.textContent = sessionPnl.toFixed(2);
+        pnlEl.style.color = sessionPnl >= 0 ? 'var(--accent)' : 'var(--hot)';
+        delete openContracts[contractId];
+        if(sessionPnl <= -Math.abs(parseFloat($('maxLoss').value))){
+          log('Max loss reached — disarming auto-trade', 'alert');
+          $('armToggle').checked = false;
+        }
+      }
+    });
+  }
+
+  function loadHistory(symbol, count){
+    sendReq({ ticks_history: symbol, count: count, end: 'latest', style: 'ticks' }, (resp) => {
+      if(resp.error){ log('History error: ' + resp.error.message, 'loss'); return; }
+      const prices = resp.history.prices;
+      digitCounts = new Array(10).fill(0);
+      digitWindow = [];
+      prices.forEach(p => {
+        const d = lastDigitOf(p);
+        digitWindow.push(d);
+        digitCounts[d]++;
+      });
+      updateDigitDisplay();
+      log(`Loaded ${prices.length} historical ticks for ${symbol}`, 'info');
+      subscribeTicksLive(symbol);
+    });
+  }
+
+  function lastDigitOf(price){
+    const s = String(price).replace('.', '');
+    return parseInt(s[s.length-1]);
+  }
+
+  function subscribeTicksLive(symbol){
+    sendReq({ ticks: symbol, subscribe: 1 }, (resp) => {
+      if(resp.error){ log('Tick sub error: ' + resp.error.message, 'loss'); return; }
+      subscribedTicks = true;
+      log(`Subscribed to live ticks: ${symbol}`, 'info');
+    });
+  }
+
+  function connect(){
+    const appId = $('appId').value.trim() || '1089';
+    const token = $('apiToken').value.trim();
+    setConnUI('connecting');
+    ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`);
+
+    ws.onopen = () => {
+      log('WebSocket connected', 'info');
+      $('btnConnect').disabled = true;
+      $('btnDisconnect').disabled = false;
+      if(token){
+        sendReq({ authorize: token }, (resp) => {
+          if(resp.error){
+            log('Authorize failed: ' + resp.error.message + ' — continuing watch-only', 'loss');
+            authorized = false;
+            setConnUI('watch');
+          } else {
+            authorized = true;
+            setConnUI('auth');
+            log(`Authorized as ${resp.authorize.loginid} (${resp.authorize.is_virtual ? 'DEMO' : 'REAL'})`, 'info');
+            $('btnManualBuy').disabled = false;
+          }
+          $('btnKillSwitch').disabled = false;
+          loadHistory($('symbol').value, parseInt($('windowSize').value));
+        });
+      } else {
+        setConnUI('watch');
+        $('btnKillSwitch').disabled = false;
+        log('No token supplied — watch-only mode, auto-trade disabled', 'info');
+        loadHistory($('symbol').value, parseInt($('windowSize').value));
+      }
+    };
+
+    ws.onmessage = (evt) => {
+      const data = JSON.parse(evt.data);
+      if(data.req_id && pending[data.req_id]){
+        const h = pending[data.req_id];
+        delete pending[data.req_id];
+        h(data);
+      }
+      if(data.msg_type === 'tick' && data.tick){
+        const d = lastDigitOf(data.tick.quote);
+        onNewDigit(d);
+      }
+      if(data.msg_type === 'proposal_open_contract' && data.proposal_open_contract){
+        const poc = data.proposal_open_contract;
+        if(poc.is_sold && openContracts[poc.contract_id]){
+          const profit = parseFloat(poc.profit);
+          sessionPnl += profit;
+          if(profit >= 0){ sessionWins++; log(`WIN contract ${poc.contract_id}: +$${profit.toFixed(2)}`, 'win'); }
+          else { sessionLosses++; log(`LOSS contract ${poc.contract_id}: $${profit.toFixed(2)}`, 'loss'); }
+          $('kpiWins').textContent = sessionWins;
+          $('kpiLosses').textContent = sessionLosses;
+          const pnlEl = $('kpiPnl');
+          pnlEl.textContent = sessionPnl.toFixed(2);
+          pnlEl.style.color = sessionPnl >= 0 ? 'var(--accent)' : 'var(--hot)';
+          delete openContracts[poc.contract_id];
+        }
+      }
+      if(data.error && !data.req_id){
+        log('API error: ' + data.error.message, 'loss');
+      }
+    };
+
+    ws.onerror = () => log('WebSocket error', 'loss');
+    ws.onclose = () => {
+      log('WebSocket closed', 'info');
+      setConnUI('off');
+      $('btnConnect').disabled = false;
+      $('btnDisconnect').disabled = true;
+      $('btnManualBuy').disabled = true;
+      $('btnKillSwitch').disabled = true;
+      authorized = false;
+      subscribedTicks = false;
+    };
+  }
+
+  function disconnect(){
+    if(ws) ws.close();
+  }
+
+  $('btnConnect').addEventListener('click', connect);
+  $('btnDisconnect').addEventListener('click', disconnect);
+  $('btnManualBuy').addEventListener('click', () => placeTrade());
+  $('btnKillSwitch').addEventListener('click', () => {
+    killed = true;
+    $('armToggle').checked = false;
+    log('KILL SWITCH engaged — auto-trade disabled for this session', 'alert');
+  });
+  $('windowSize').addEventListener('change', () => {
+    if(ws && ws.readyState === 1) loadHistory($('symbol').value, parseInt($('windowSize').value));
+  });
+  $('symbol').addEventListener('change', () => {
+    if(ws && ws.readyState === 1){
+      // resubscribe to new symbol
+      loadHistory($('symbol').value, parseInt($('windowSize').value));
+    }
+  });
+  $('devThreshold').addEventListener('input', updateDigitDisplay);
+
+  log('Ready. Enter your App ID (and optionally an API token) and click Connect.', 'info');
+})();
+</script>
+</body>
+</html>
