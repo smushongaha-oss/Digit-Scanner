@@ -112,14 +112,27 @@
     <div class="panel">
       <h2><span><span class="status-dot dot-off" id="connDot"></span>CONNECTION</span><span id="connText" style="color:var(--dim); font-weight:400;">disconnected</span></h2>
       <div class="row">
-        <label>App ID</label>
-        <input type="text" id="appId" placeholder="1089 (or your own)" value="1089">
+        <button class="primary" id="btnLoginDeriv" style="flex:1;">Login with Deriv</button>
       </div>
-      <div style="color:var(--dim); font-size:10px; margin:-4px 0 8px 0;">This connects to Deriv's classic WebSocket API (ws.derivws.com), which expects a numeric app_id like <code>1089</code>. IDs from the newer OAuth developer portal are a different format and may be rejected server-side — if connection closes immediately, try <code>1089</code> to confirm.</div>
-      <div class="row">
-        <label>API token</label>
-        <input type="text" id="apiToken" placeholder="demo/real token (leave blank to watch only)">
+      <div id="oauthAccounts" style="display:none;">
+        <div class="row">
+          <label>Account</label>
+          <select id="oauthAccountSelect" style="flex:1;"></select>
+        </div>
       </div>
+      <div style="color:var(--dim); font-size:10px; margin:-4px 0 10px 0;">Logs you in on Deriv's own site and hands this page a token for whichever account you pick — no copying/pasting App IDs or tokens yourself.</div>
+      <details style="margin-bottom:8px;">
+        <summary style="cursor:pointer; color:var(--dim); font-size:11px;">Advanced: manual App ID / token</summary>
+        <div class="row" style="margin-top:8px;">
+          <label>App ID</label>
+          <input type="text" id="appId" placeholder="1089 (or your own)" value="1089">
+        </div>
+        <div style="color:var(--dim); font-size:10px; margin:-4px 0 8px 0;">Only needed if you're not using "Login with Deriv" above. This connects to Deriv's classic WebSocket API (ws.derivws.com), which expects a numeric app_id like <code>1089</code>.</div>
+        <div class="row">
+          <label>API token</label>
+          <input type="text" id="apiToken" placeholder="demo/real token (leave blank to watch only)">
+        </div>
+      </details>
       <div class="row">
         <label>Symbol</label>
         <select id="symbol">
@@ -256,6 +269,51 @@
   let killed = false;
   let selectedDigit = null;
   let openContracts = {}; // contract_id -> {stake}
+
+  // ---- Login with Deriv (OAuth) ----------------------------------------
+  // Uses the app registered on developers.deriv.com with this page's own URL
+  // as its redirect URI. Swap this for your own registered App ID if you
+  // redeploy this page somewhere else and re-register accordingly.
+  const OAUTH_APP_ID = '33TNShFhb65qx17XCq1Oq';
+
+  function parseOAuthRedirect(){
+    const params = new URLSearchParams(window.location.search);
+    const accounts = [];
+    let i = 1;
+    while(params.has('acct' + i)){
+      accounts.push({
+        acct: params.get('acct' + i),
+        token: params.get('token' + i),
+        currency: params.get('cur' + i) || ''
+      });
+      i++;
+    }
+    if(!accounts.length) return;
+
+    // Strip tokens out of the address bar immediately — they shouldn't
+    // linger in browser history or get shared if the URL is copied.
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
+
+    const sel = $('oauthAccountSelect');
+    sel.innerHTML = '';
+    accounts.forEach((acc, idx) => {
+      const opt = document.createElement('option');
+      opt.value = idx;
+      opt.textContent = `${acc.acct} (${acc.currency})`;
+      sel.appendChild(opt);
+    });
+    $('oauthAccounts').style.display = '';
+
+    const applyAccount = (idx) => {
+      $('apiToken').value = accounts[idx].token;
+      $('appId').value = OAUTH_APP_ID;
+    };
+    sel.addEventListener('change', () => applyAccount(sel.value));
+    applyAccount(0);
+
+    log(`Logged in via Deriv — ${accounts.length} account(s) available. Pick one above, then click Connect & Watch.`, 'info');
+  }
 
   function log(msg, cls){
     const box = $('logBox');
@@ -592,6 +650,10 @@
     if(ws) ws.close();
   }
 
+  $('btnLoginDeriv').addEventListener('click', () => {
+    const redirect = window.location.origin + window.location.pathname;
+    window.location.href = `https://oauth.deriv.com/oauth2/authorize?app_id=${encodeURIComponent(OAUTH_APP_ID)}&redirect_uri=${encodeURIComponent(redirect)}`;
+  });
   $('btnConnect').addEventListener('click', connect);
   $('btnDisconnect').addEventListener('click', disconnect);
   $('btnManualBuy').addEventListener('click', () => placeTrade());
@@ -611,7 +673,8 @@
   });
   $('devThreshold').addEventListener('input', updateDigitDisplay);
 
-  log('Ready. Enter your App ID (and optionally an API token) and click Connect.', 'info');
+  parseOAuthRedirect();
+  log('Ready. Click "Login with Deriv" (recommended) or use Advanced for a manual App ID/token, then Connect.', 'info');
 })();
 </script>
 </body>
